@@ -41,8 +41,6 @@ struct _GstFramePositionner
   GstBaseTransform base_framepositionner;
 
   GstElement *capsfilter;
-  
-  GstElement *videocrop;
 
   GESTrackElement *track_source;
   GESTrack *current_track;
@@ -57,10 +55,6 @@ struct _GstFramePositionner
   gint track_height;
   gint fps_n;
   gint fps_d;
-  gint bottom;
-  gint top;
-  gint right;
-  gint left;
 
   /*  This should never be made public, no padding needed */
 };
@@ -81,7 +75,7 @@ struct _GstFramePositionnerMeta {
 
 void ges_frame_positionner_set_source_and_filter (GstFramePositionner *pos,
 						  GESTrackElement *trksrc,
-						  GstElement *capsfilter, GstElement *videocrop);
+						  GstElement *capsfilter);
 GType gst_frame_positionner_get_type (void);
 GType
 gst_frame_positionner_meta_api_get_type (void);
