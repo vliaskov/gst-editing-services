@@ -93,8 +93,9 @@ ges_video_source_create_element (GESTrackElement * trksrc)
   GESVideoSourceClass *source_class = GES_VIDEO_SOURCE_GET_CLASS (trksrc);
   GESVideoSource *self;
   GstElement *positionner, *videoscale, *videorate, *capsfilter, *videoconvert,
-      *deinterlace;
-  const gchar *props[] = { "alpha", "posx", "posy", "width", "height", NULL };
+      *deinterlace, *videocrop;
+  const gchar *props[] = { "alpha", "posx", "posy", "width", "height",
+      "bottom", "top", "left", "right", NULL };
   GESTimelineElement *parent;
 
   if (!source_class->create_source)
@@ -108,6 +109,7 @@ ges_video_source_create_element (GESTrackElement * trksrc)
      properties, acting like a proxy for our smart-mixer dynamic pads. */
   positionner = gst_element_factory_make ("framepositionner", "frame_tagger");
 
+  videocrop = gst_element_factory_make ("videocrop", "track-element-videocrop");
   videoscale =
       gst_element_factory_make ("videoscale", "track-element-videoscale");
   videoconvert =
@@ -121,7 +123,7 @@ ges_video_source_create_element (GESTrackElement * trksrc)
       gst_element_factory_make ("capsfilter", "track-element-capsfilter");
 
   ges_frame_positionner_set_source_and_filter (GST_FRAME_POSITIONNER
-      (positionner), trksrc, capsfilter);
+      (positionner), trksrc, capsfilter, videocrop);
 
   ges_track_element_add_children_props (trksrc, positionner, NULL, NULL, props);
 
@@ -133,11 +135,11 @@ ges_video_source_create_element (GESTrackElement * trksrc)
             "deinterlace"), ("deinterlacing won't work"));
     topbin =
         ges_source_create_topbin ("videosrcbin", sub_element, videoconvert,
-        positionner, videoscale, videorate, capsfilter, NULL);
+        positionner, videocrop, videoscale, videorate, capsfilter, NULL);
   } else {
     topbin =
         ges_source_create_topbin ("videosrcbin", sub_element, videoconvert,
-        deinterlace, positionner, videoscale, videorate, capsfilter, NULL);
+        deinterlace, positionner, videocrop, videoscale, videorate, capsfilter, NULL);
   }
 
   parent = ges_timeline_element_get_parent (GES_TIMELINE_ELEMENT (trksrc));
