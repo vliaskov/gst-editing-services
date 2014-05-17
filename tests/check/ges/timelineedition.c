@@ -1282,6 +1282,35 @@ _set_track_element_width_height (GESTrackElement * trksrc, gint wvalue,
     ges_track_element_set_child_property (trksrc, "height", &height);
 }
 
+/* -1 values mean don't set the property */
+static void
+_set_track_element_crop (GESTrackElement * trksrc, gint bottomvalue,
+    gint topvalue, gint leftvalue, gint rightvalue)
+{
+  GValue bottom = { 0 };
+  GValue top = { 0 };
+  GValue left = { 0 };
+  GValue right = { 0 };
+
+  g_value_init (&bottom, G_TYPE_INT);
+  g_value_init (&top, G_TYPE_INT);
+  g_value_init (&left, G_TYPE_INT);
+  g_value_init (&right, G_TYPE_INT);
+  g_value_set_int (&bottom, bottomvalue);
+  g_value_set_int (&top, topvalue);
+  g_value_set_int (&left, leftvalue);
+  g_value_set_int (&right, rightvalue);
+  if (bottomvalue >= 0)
+    ges_track_element_set_child_property (trksrc, "crop-bottom", &bottom);
+  if (topvalue >= 0)
+    ges_track_element_set_child_property (trksrc, "crop-top", &top);
+  if (leftvalue >= 0)
+    ges_track_element_set_child_property (trksrc, "crop-left", &left);
+  if (rightvalue >= 0)
+    ges_track_element_set_child_property (trksrc, "crop-right", &right);
+
+}
+
 static gboolean
 check_frame_positionner_size (GESClip * clip, gint width, gint height)
 {
@@ -1302,7 +1331,6 @@ check_frame_positionner_size (GESClip * clip, gint width, gint height)
 
   real_width = g_value_get_int (&val_width);
   real_height = g_value_get_int (&val_height);
-
   return (width == real_width && height == real_height);
 }
 
@@ -1475,6 +1503,167 @@ GST_START_TEST (test_scaling)
 
 GST_END_TEST;
 
+GST_START_TEST (test_crop)
+{
+  GESTimeline *timeline;
+  GESLayer *layer;
+  GESAsset *asset1, *asset2;
+  GESClip *clip;
+  GESTrack *trackv = GES_TRACK (ges_video_track_new ());
+
+  GstCaps *caps =
+      gst_caps_new_simple ("video/x-raw", "width", G_TYPE_INT, 1200, "height",
+      G_TYPE_INT, 1000, NULL);
+
+  ges_init ();
+  timeline = ges_timeline_new ();
+  ges_timeline_add_track (timeline, trackv);
+  layer = ges_layer_new ();
+  fail_unless (ges_timeline_add_layer (timeline, layer));
+
+  g_object_set (layer, "auto-transition", TRUE, NULL);
+
+  asset1 = GES_ASSET (ges_asset_request (GES_TYPE_TEST_CLIP, NULL, NULL));
+  asset2 = GES_ASSET (ges_asset_request (GES_TYPE_TEST_CLIP, NULL, NULL));
+
+  fail_unless (asset1 != NULL && asset2 != NULL);
+
+  GST_DEBUG_BIN_TO_DOT_FILE_WITH_TS (GST_BIN (timeline),
+      GST_DEBUG_GRAPH_SHOW_ALL, "ges-integration-timeline");
+
+  ges_track_set_restriction_caps (trackv, caps);
+  gst_caps_unref (caps);
+
+  GST_DEBUG ("adding clip, should be 1200 x 1000");
+  clip =
+      ges_layer_add_asset (layer, GES_ASSET (asset1), 0 * GST_SECOND,
+      0 * GST_SECOND, 4 * GST_SECOND, GES_TRACK_TYPE_UNKNOWN);
+  gst_object_unref (asset1);
+  g_object_set (clip, "vpattern", (gint) GES_VIDEO_TEST_PATTERN_SMPTE75, NULL);
+
+  /**
+   * Our track: 1200 x 1000
+   *
+   * 0--------------0
+   * | width : 1200 |
+   * | height: 1000 |
+   * 0--------------2
+   */
+
+  if (GES_IS_VIDEO_SOURCE (GES_CONTAINER_CHILDREN (clip)->data))
+    _set_track_element_crop (GES_CONTAINER_CHILDREN (clip)->data, 250, 0, 0, 0);
+
+  /**
+   * Our track: 1200 x 1000
+   *
+   * 0--------------0
+   * | bottom:  250 |
+   * |    top:    0 |
+   * |   left:    0 |
+   * |  right:    0 |
+   * | width : 1200 |
+   * | height:  750 |
+   * 0--------------2
+   */
+  fail_unless (check_frame_positionner_size (clip, 1200, 750));
+
+  if (GES_IS_VIDEO_SOURCE (GES_CONTAINER_CHILDREN (clip)->data))
+    _set_track_element_crop (GES_CONTAINER_CHILDREN (clip)->data, -1, 300, 0,
+        0);
+
+  /**
+   * Our track: 1200 x 1000
+   *
+   * 0--------------0
+   * | bottom:  250 |
+   * |    top:  300 |
+   * |   left:    0 |
+   * |  right:    0 |
+   * | width : 1200 |
+   * | height:  450 |
+   * 0--------------2
+   */
+  fail_unless (check_frame_positionner_size (clip, 1200, 450));
+
+  if (GES_IS_VIDEO_SOURCE (GES_CONTAINER_CHILDREN (clip)->data))
+    _set_track_element_crop (GES_CONTAINER_CHILDREN (clip)->data, -1, -1, 350,
+        0);
+
+  /**
+   * Our track: 1200 x 1000
+   *
+   * 0--------------0
+   * | bottom:  250 |
+   * |    top:  300 |
+   * |   left:  350 |
+   * |  right:    0 |
+   * | width :  850 |
+   * | height:  450 |
+   * 0--------------2
+   */
+  fail_unless (check_frame_positionner_size (clip, 850, 450));
+
+  if (GES_IS_VIDEO_SOURCE (GES_CONTAINER_CHILDREN (clip)->data))
+    _set_track_element_crop (GES_CONTAINER_CHILDREN (clip)->data, -1, -1, -1,
+        400);
+
+  /**
+   * Our track: 1200 x 1000
+   *
+   * 0--------------0
+   * | bottom:  250 |
+   * |    top:  300 |
+   * |   left:  350 |
+   * |  right:  400 |
+   * | width :  450 |
+   * | height:  450 |
+   * 0--------------2
+   */
+  fail_unless (check_frame_positionner_size (clip, 450, 450));
+
+  if (GES_IS_VIDEO_SOURCE (GES_CONTAINER_CHILDREN (clip)->data))
+    _set_track_element_crop (GES_CONTAINER_CHILDREN (clip)->data, 0, 500, 0, 0);
+
+  /**
+   * Our track: 1200 x 1000
+   *
+   * 0--------------0
+   * | bottom:    0 |
+   * |    top:  500 |
+   * |   left:    0 |
+   * |  right:    0 |
+   * | width : 1200 |
+   * | height:  500 |
+   * 0--------------2
+   */
+  fail_unless (check_frame_positionner_size (clip, 1200, 500));
+
+  if (GES_IS_VIDEO_SOURCE (GES_CONTAINER_CHILDREN (clip)->data))
+    _set_track_element_width_height (GES_CONTAINER_CHILDREN (clip)->data, 800,
+        600);
+
+  if (GES_IS_VIDEO_SOURCE (GES_CONTAINER_CHILDREN (clip)->data))
+    _set_track_element_crop (GES_CONTAINER_CHILDREN (clip)->data, 0, 0, 150, 0);
+
+  /**
+   * Our track: 1200 x 1000
+   * User defined width x height: 800 x 600
+   *
+   * 0--------------0
+   * | bottom:    0 |
+   * |    top:    0 |
+   * |   left:  150 |
+   * |  right:    0 |
+   * | width :  650 |
+   * | height:  600 |
+   * 0--------------2
+   */
+
+  fail_unless (check_frame_positionner_size (clip, 650, 600));
+}
+
+GST_END_TEST;
+
 static Suite *
 ges_suite (void)
 {
@@ -1490,6 +1679,7 @@ ges_suite (void)
   tcase_add_test (tc_chain, test_groups);
   tcase_add_test (tc_chain, test_snapping_groups);
   tcase_add_test (tc_chain, test_scaling);
+  tcase_add_test (tc_chain, test_crop);
 
   return s;
 }
