@@ -49,7 +49,11 @@ enum
   PROP_POSY,
   PROP_ZORDER,
   PROP_WIDTH,
-  PROP_HEIGHT
+  PROP_HEIGHT,
+  PROP_BOTTOM,
+  PROP_TOP,
+  PROP_LEFT,
+  PROP_RIGHT
 };
 
 static GstStaticPadTemplate gst_frame_positionner_src_template =
@@ -74,6 +78,8 @@ _weak_notify_cb (GstFramePositionner * pos, GObject * old)
 {
   pos->current_track = NULL;
 }
+
+
 
 static void
 gst_frame_positionner_update_properties (GstFramePositionner * pos)
@@ -115,6 +121,83 @@ gst_frame_positionner_update_properties (GstFramePositionner * pos)
 
   g_object_notify (G_OBJECT (pos), "width");
   g_object_notify (G_OBJECT (pos), "height");
+}
+
+static void
+gst_frame_positionner_update_crop (GstFramePositionner * pos, guint crop, gint
+    value)
+{
+  gint final_width;
+  gint final_height;
+
+  if (pos->videocrop == NULL)
+    return;
+
+  GST_DEBUG_OBJECT (pos,
+      "updating crop: bottom = %d top = %d left = %d right = %d",
+      pos->crop_bottom, pos->crop_top, pos->crop_left, pos->crop_right);
+
+  final_width = (pos->width > 0) ? pos->width : pos->track_width;
+  final_height = (pos->height > 0) ? pos->height : pos->track_height;
+
+  switch (crop) {
+    case PROP_BOTTOM:
+      g_object_set (pos->videocrop, "bottom", pos->crop_bottom, NULL);
+      final_height += pos->crop_bottom;
+      if (value > 0)
+        final_height -= value;
+      pos->crop_bottom = value;
+      g_object_notify (G_OBJECT (pos), "crop-bottom");
+      break;
+    case PROP_TOP:
+      g_object_set (pos->videocrop, "top", pos->crop_top, NULL);
+      final_height += pos->crop_top;
+      if (value > 0)
+        final_height -= value;
+      pos->crop_top = value;
+      g_object_notify (G_OBJECT (pos), "crop-top");
+      break;
+    case PROP_LEFT:
+      g_object_set (pos->videocrop, "left", pos->crop_left, NULL);
+      final_width += pos->crop_left;
+      if (value > 0)
+        final_width -= value;
+      pos->crop_left = value;
+      g_object_notify (G_OBJECT (pos), "crop-left");
+      break;
+    case PROP_RIGHT:
+      g_object_set (pos->videocrop, "right", pos->crop_right, NULL);
+      final_width += pos->crop_right;
+      if (value > 0)
+        final_width -= value;
+      pos->crop_right = value;
+      g_object_notify (G_OBJECT (pos), "crop-right");
+      break;
+    default:
+      break;
+  }
+
+  pos->width = final_width;
+  pos->height = final_height;
+  gst_frame_positionner_update_properties (pos);
+
+}
+
+static void
+gst_frame_positionner_reset_crop (GstFramePositionner * pos)
+{
+  pos->crop_bottom = 0;
+  pos->crop_top = 0;
+  pos->crop_left = 0;
+  pos->crop_right = 0;
+  g_object_set (pos->videocrop, "bottom", pos->crop_bottom, NULL);
+  g_object_set (pos->videocrop, "top", pos->crop_top, NULL);
+  g_object_set (pos->videocrop, "left", pos->crop_left, NULL);
+  g_object_set (pos->videocrop, "right", pos->crop_right, NULL);
+  g_object_notify (G_OBJECT (pos), "crop-bottom");
+  g_object_notify (G_OBJECT (pos), "crop-top");
+  g_object_notify (G_OBJECT (pos), "crop-left");
+  g_object_notify (G_OBJECT (pos), "crop-right");
 }
 
 static void
@@ -191,10 +274,11 @@ _track_changed_cb (GESTrackElement * trksrc, GParamSpec * arg G_GNUC_UNUSED,
 
 void
 ges_frame_positionner_set_source_and_filter (GstFramePositionner * pos,
-    GESTrackElement * trksrc, GstElement * capsfilter)
+    GESTrackElement * trksrc, GstElement * capsfilter, GstElement * videocrop)
 {
   pos->track_source = trksrc;
   pos->capsfilter = capsfilter;
+  pos->videocrop = videocrop;
   pos->current_track = ges_track_element_get_track (trksrc);
   g_object_weak_ref (G_OBJECT (pos->current_track),
       (GWeakNotify) _weak_notify_cb, pos);
@@ -306,6 +390,48 @@ gst_frame_positionner_class_init (GstFramePositionnerClass * klass)
   g_object_class_install_property (gobject_class, PROP_HEIGHT,
       g_param_spec_int ("height", "height", "height of the source",
           0, MAX_PIXELS, 0, G_PARAM_READWRITE));
+  /**
+   * gesframepositionner:bottom:
+   *
+   * The desired height to crop from the source, starting from bottom.
+   * Set to 0 if cropping is not mandatory, no cropping will occur.
+   */
+  g_object_class_install_property (gobject_class, PROP_BOTTOM,
+      g_param_spec_int ("crop-bottom", "crop-bottom",
+          "bottom position in source for cropping", 0, MAX_PIXELS, 0,
+          G_PARAM_READWRITE));
+  /**
+   * gesframepositionner:top:
+   *
+   * The desired height to crop from source, starting from top.
+   * Set to 0 if size is not mandatory, will be set to height of the current track.
+   */
+  g_object_class_install_property (gobject_class, PROP_TOP,
+      g_param_spec_int ("crop-top", "crop-top",
+          "top position in source for cropping", 0, MAX_PIXELS, 0,
+          G_PARAM_READWRITE));
+
+  /**
+   * gesframepositionner:left:
+   *
+   * The desired width to crop from source, starting from left.
+   * Set to 0 if size is not mandatory, will be set to width of the current track.
+   */
+  g_object_class_install_property (gobject_class, PROP_LEFT,
+      g_param_spec_int ("crop-left", "crop-left",
+          "left position in source for cropping", 0, MAX_PIXELS, 0,
+          G_PARAM_READWRITE));
+
+  /**
+   * gesframepositionner:right
+   *
+   * The desired height to crop from source, starting from top.
+   * Set to 0 if size is not mandatory, will be set to height of the current track.
+   */
+  g_object_class_install_property (gobject_class, PROP_RIGHT,
+      g_param_spec_int ("crop-right", "crop-right",
+          "right position in source for cropping", 0, MAX_PIXELS, 0,
+          G_PARAM_READWRITE));
 
   gst_element_class_set_static_metadata (GST_ELEMENT_CLASS (klass),
       "frame positionner", "Metadata",
@@ -329,6 +455,10 @@ gst_frame_positionner_init (GstFramePositionner * framepositionner)
   framepositionner->capsfilter = NULL;
   framepositionner->track_source = NULL;
   framepositionner->current_track = NULL;
+  framepositionner->crop_bottom = 0;
+  framepositionner->crop_top = 0;
+  framepositionner->crop_left = 0;
+  framepositionner->crop_right = 0;
 }
 
 void
@@ -336,7 +466,6 @@ gst_frame_positionner_set_property (GObject * object, guint property_id,
     const GValue * value, GParamSpec * pspec)
 {
   GstFramePositionner *framepositionner = GST_FRAME_POSITIONNER (object);
-
 
   GST_OBJECT_LOCK (framepositionner);
   switch (property_id) {
@@ -355,10 +484,21 @@ gst_frame_positionner_set_property (GObject * object, guint property_id,
     case PROP_WIDTH:
       framepositionner->width = g_value_get_int (value);
       gst_frame_positionner_update_properties (framepositionner);
+      /* any user change to frame size defaults to no cropping. */
+      gst_frame_positionner_reset_crop (framepositionner);
       break;
     case PROP_HEIGHT:
       framepositionner->height = g_value_get_int (value);
       gst_frame_positionner_update_properties (framepositionner);
+      /* any user change to frame size defaults to no cropping. */
+      gst_frame_positionner_reset_crop (framepositionner);
+      break;
+    case PROP_BOTTOM:
+    case PROP_TOP:
+    case PROP_LEFT:
+    case PROP_RIGHT:
+      gst_frame_positionner_update_crop (framepositionner, property_id,
+          g_value_get_int (value));
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
@@ -396,6 +536,18 @@ gst_frame_positionner_get_property (GObject * object, guint property_id,
     case PROP_HEIGHT:
       real_height = (pos->height > 0) ? pos->height : pos->track_height;
       g_value_set_int (value, real_height);
+      break;
+    case PROP_BOTTOM:
+      g_value_set_int (value, pos->crop_bottom);
+      break;
+    case PROP_TOP:
+      g_value_set_int (value, pos->crop_top);
+      break;
+    case PROP_LEFT:
+      g_value_set_int (value, pos->crop_left);
+      break;
+    case PROP_RIGHT:
+      g_value_set_int (value, pos->crop_right);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
